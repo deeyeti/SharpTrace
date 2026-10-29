@@ -1,0 +1,167 @@
+@using SharpTrace.Core.Models
+
+<div class="hex-view-container">
+    <div class="hex-view-header">
+        <div class="hex-header-title">
+            <span class="icon">🔍</span> Hex & ASCII Inspector
+            @if (RawBytes != null && RawBytes.Length > 0)
+            {
+                <span class="byte-count-badge">@RawBytes.Length bytes</span>
+            }
+        </div>
+        <div class="hex-status-bar">
+            @if (_hoveredOffset >= 0 && RawBytes != null && _hoveredOffset < RawBytes.Length)
+            {
+                byte b = RawBytes[_hoveredOffset];
+                <span class="status-item">Offset: <code>0x@(_hoveredOffset.ToString("X4")) (@_hoveredOffset)</code></span>
+                <span class="status-item">Hex: <code>0x@(b.ToString("X2"))</code></span>
+                <span class="status-item">Dec: <code>@b</code></span>
+                <span class="status-item">Bin: <code>@Convert.ToString(b, 2).PadLeft(8, '0')</code></span>
+                <span class="status-item">Ascii: <code>'@(GetAsciiChar(b))'</code></span>
+            }
+            else if (SelectedRange != null && SelectedRange.Length > 0)
+            {
+                <span class="status-item">Selected: <code>@SelectedRange.Label</code></span>
+                <span class="status-item">Range: <code>0x@(SelectedRange.StartOffset.ToString("X4")) .. 0x@(SelectedRange.EndOffset.ToString("X4")) (@SelectedRange.Length bytes)</code></span>
+            }
+            else
+            {
+                <span class="status-muted">Hover or click bytes to inspect</span>
+            }
+        </div>
+    </div>
+
+    @if (RawBytes == null || RawBytes.Length == 0)
+    {
+        <div class="hex-empty-state">
+            <span>Select a packet from the list to inspect raw octets</span>
+        </div>
+    }
+    else
+    {
+        <div class="hex-dump-scroller">
+            <div class="hex-dump-table">
+                <!-- Column labels -->
+                <div class="hex-row hex-header-row">
+                    <span class="hex-col-offset">Offset</span>
+                    <div class="hex-octets-group">
+                        <span class="hex-col-label">00 01 02 03 04 05 06 07</span>
+                        <span class="hex-col-separator"></span>
+                        <span class="hex-col-label">08 09 0A 0B 0C 0D 0E 0F</span>
+                    </div>
+                    <span class="hex-ascii-label">Decoded ASCII</span>
+                </div>
+
+                @{
+                    int rowCount = (RawBytes.Length + 15) / 16;
+                }
+                @for (int r = 0; r < rowCount; r++)
+                {
+                    int rowOffset = r * 16;
+                    int rowBytesCount = Math.Min(16, RawBytes.Length - rowOffset);
+
+                    <div class="hex-row">
+                        <!-- Offset column (0000, 0010, etc.) -->
+                        <span class="hex-col-offset">@rowOffset.ToString("X4")</span>
+
+                        <!-- Octets: 0..7 and 8..15 -->
+                        <div class="hex-octets-group">
+                            <div class="hex-subgroup">
+                                @for (int i = 0; i < 8; i++)
+                                {
+                                    int byteIdx = rowOffset + i;
+                                    if (i < rowBytesCount)
+                                    {
+                                        byte b = RawBytes[byteIdx];
+                                        bool isHighlighted = SelectedRange != null && SelectedRange.Contains(byteIdx);
+                                        bool isHovered = _hoveredOffset == byteIdx;
+                                        string byteClass = $"hex-byte {(isHighlighted ? "highlighted" : "")} {(isHovered ? "hovered" : "")}";
+
+                                        <span class="@byteClass"
+                                              @onmouseover="() => _hoveredOffset = byteIdx"
+                                              @onmouseout="() => _hoveredOffset = -1"
+                                              @onclick="() => SelectByte(byteIdx)">
+                                            @b.ToString("X2")
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hex-byte hex-byte-empty">  </span>
+                                    }
+                                }
+                            </div>
+
+                            <span class="hex-col-separator"></span>
+
+                            <div class="hex-subgroup">
+                                @for (int i = 8; i < 16; i++)
+                                {
+                                    int byteIdx = rowOffset + i;
+                                    if (i < rowBytesCount)
+                                    {
+                                        byte b = RawBytes[byteIdx];
+                                        bool isHighlighted = SelectedRange != null && SelectedRange.Contains(byteIdx);
+                                        bool isHovered = _hoveredOffset == byteIdx;
+                                        string byteClass = $"hex-byte {(isHighlighted ? "highlighted" : "")} {(isHovered ? "hovered" : "")}";
+
+                                        <span class="@byteClass"
+                                              @onmouseover="() => _hoveredOffset = byteIdx"
+                                              @onmouseout="() => _hoveredOffset = -1"
+                                              @onclick="() => SelectByte(byteIdx)">
+                                            @b.ToString("X2")
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="hex-byte hex-byte-empty">  </span>
+                                    }
+                                }
+                            </div>
+                        </div>
+
+                        <!-- ASCII translation column -->
+                        <div class="hex-ascii-col">
+                            @for (int i = 0; i < rowBytesCount; i++)
+                            {
+                                int byteIdx = rowOffset + i;
+                                byte b = RawBytes[byteIdx];
+                                bool isHighlighted = SelectedRange != null && SelectedRange.Contains(byteIdx);
+                                bool isHovered = _hoveredOffset == byteIdx;
+                                char c = GetAsciiChar(b);
+                                string asciiClass = $"ascii-char {(isHighlighted ? "highlighted" : "")} {(isHovered ? "hovered" : "")}";
+
+                                <span class="@asciiClass"
+                                      @onmouseover="() => _hoveredOffset = byteIdx"
+                                      @onmouseout="() => _hoveredOffset = -1"
+                                      @onclick="() => SelectByte(byteIdx)">
+                                    @c
+                                </span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public byte[]? RawBytes { get; set; }
+    [Parameter] public ByteHighlightRange? SelectedRange { get; set; }
+    [Parameter] public EventCallback<int> OnByteClicked { get; set; }
+
+    private int _hoveredOffset = -1;
+
+    private static char GetAsciiChar(byte b)
+    {
+        return (b >= 32 && b <= 126) ? (char)b : '.';
+    }
+
+    private async Task SelectByte(int offset)
+    {
+        if (OnByteClicked.HasDelegate)
+        {
+            await OnByteClicked.InvokeAsync(offset);
+        }
+    }
+}

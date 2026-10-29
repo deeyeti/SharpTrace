@@ -1,0 +1,287 @@
+@using SharpTrace.Core.Models
+
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="Close">
+        <div class="modal-dialog" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <span class="icon">📊</span> Capture Metrics & Analytics
+                </div>
+                <button class="modal-close-btn" @onclick="Close">✕</button>
+            </div>
+
+            <div class="modal-body">
+                <!-- Summary Cards -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-title">Total Packets</div>
+                        <div class="metric-val">@_totalPackets.ToString("N0")</div>
+                        <div class="metric-sub">Analyzed frames</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Total Traffic</div>
+                        <div class="metric-val">@FormatBytes(_totalBytes)</div>
+                        <div class="metric-sub">@_totalBytes.ToString("N0") raw bytes</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Capture Duration</div>
+                        <div class="metric-val">@_durationSec.ToString("F3")s</div>
+                        <div class="metric-sub">Span between frames</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Avg Packet Size</div>
+                        <div class="metric-val">@_avgPacketSize.ToString("F1") B</div>
+                        <div class="metric-sub">Bytes per frame</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Throughput</div>
+                        <div class="metric-val">@_throughputKbps.ToString("F2") kbps</div>
+                        <div class="metric-sub">Average bit rate</div>
+                    </div>
+                </div>
+
+                <!-- Tabs: Protocol Distribution / Top Talkers / Conversations -->
+                <div class="stats-tabs">
+                    <button class="stats-tab @(_activeTab == "protocols" ? "active" : "")" @onclick='() => _activeTab = "protocols"'>
+                        Protocol Breakdown
+                    </button>
+                    <button class="stats-tab @(_activeTab == "talkers" ? "active" : "")" @onclick='() => _activeTab = "talkers"'>
+                        Top Talkers (IPs)
+                    </button>
+                    <button class="stats-tab @(_activeTab == "conversations" ? "active" : "")" @onclick='() => _activeTab = "conversations"'>
+                        Conversations
+                    </button>
+                </div>
+
+                @if (_activeTab == "protocols")
+                {
+                    <div class="stats-section">
+                        <div class="stats-table">
+                            <div class="stats-row header">
+                                <div class="col-proto-name">Protocol</div>
+                                <div class="col-count">Packets</div>
+                                <div class="col-percent">% Packets</div>
+                                <div class="col-bytes">Bytes</div>
+                                <div class="col-bar">Visual Share</div>
+                            </div>
+                            @foreach (var p in _protocolStats)
+                            {
+                                <div class="stats-row">
+                                    <div class="col-proto-name">
+                                        <span class="proto-dot @p.ColorClass"></span>
+                                        <strong>@p.Name</strong>
+                                    </div>
+                                    <div class="col-count">@p.Count</div>
+                                    <div class="col-percent">@p.PacketPercentage.ToString("F1")%</div>
+                                    <div class="col-bytes">@FormatBytes(p.Bytes)</div>
+                                    <div class="col-bar">
+                                        <div class="bar-container">
+                                            <div class="bar-fill @p.ColorClass" style="width: @Math.Max(3, p.PacketPercentage)%;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else if (_activeTab == "talkers")
+                {
+                    <div class="stats-section">
+                        <div class="stats-table">
+                            <div class="stats-row header">
+                                <div class="col-rank">#</div>
+                                <div class="col-ip">IP / Endpoint</div>
+                                <div class="col-count">Packets</div>
+                                <div class="col-bytes">Bytes Transferred</div>
+                                <div class="col-percent">% Traffic</div>
+                            </div>
+                            @for (int i = 0; i < _topTalkers.Count; i++)
+                            {
+                                var talker = _topTalkers[i];
+                                <div class="stats-row">
+                                    <div class="col-rank">@(i + 1)</div>
+                                    <div class="col-ip"><code>@talker.Address</code></div>
+                                    <div class="col-count">@talker.PacketCount</div>
+                                    <div class="col-bytes">@FormatBytes(talker.TotalBytes)</div>
+                                    <div class="col-percent">@talker.TrafficPercentage.ToString("F1")%</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else if (_activeTab == "conversations")
+                {
+                    <div class="stats-section">
+                        <div class="stats-table">
+                            <div class="stats-row header">
+                                <div class="col-pair">Host A ⇄ Host B</div>
+                                <div class="col-count">Packets</div>
+                                <div class="col-bytes">Total Volume</div>
+                            </div>
+                            @foreach (var conv in _conversations)
+                            {
+                                <div class="stats-row">
+                                    <div class="col-pair">
+                                        <code>@conv.HostA</code> <span class="conv-arrow">⇄</span> <code>@conv.HostB</code>
+                                    </div>
+                                    <div class="col-count">@conv.PacketCount</div>
+                                    <div class="col-bytes">@FormatBytes(conv.Bytes)</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-primary" @onclick="Close">Close</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public IReadOnlyList<PacketModel>? Packets { get; set; }
+
+    private string _activeTab = "protocols";
+    private int _totalPackets;
+    private long _totalBytes;
+    private double _durationSec;
+    private double _avgPacketSize;
+    private double _throughputKbps;
+
+    private List<ProtocolStatItem> _protocolStats = new();
+    private List<TalkerStatItem> _topTalkers = new();
+    private List<ConversationItem> _conversations = new();
+
+    protected override void OnParametersSet()
+    {
+        if (Packets == null || Packets.Count == 0)
+        {
+            _totalPackets = 0;
+            _totalBytes = 0;
+            _durationSec = 0;
+            _avgPacketSize = 0;
+            _throughputKbps = 0;
+            _protocolStats.Clear();
+            _topTalkers.Clear();
+            _conversations.Clear();
+            return;
+        }
+
+        _totalPackets = Packets.Count;
+        _totalBytes = Packets.Sum(p => (long)p.Length);
+        _avgPacketSize = _totalPackets > 0 ? (double)_totalBytes / _totalPackets : 0;
+
+        double minTime = Packets.Min(p => p.RelativeTimeSeconds);
+        double maxTime = Packets.Max(p => p.RelativeTimeSeconds);
+        _durationSec = Math.Max(0.001, maxTime - minTime);
+        _throughputKbps = (_totalBytes * 8.0) / (_durationSec * 1000.0);
+
+        CalculateProtocolStats();
+        CalculateTopTalkers();
+        CalculateConversations();
+    }
+
+    private void CalculateProtocolStats()
+    {
+        var groups = Packets!.GroupBy(p => p.Protocol)
+            .Select(g => new
+            {
+                Protocol = g.Key,
+                Count = g.Count(),
+                Bytes = g.Sum(p => (long)p.Length),
+                ColorClass = g.First().ColorClass
+            })
+            .OrderByDescending(g => g.Count)
+            .ToList();
+
+        _protocolStats = groups.Select(g => new ProtocolStatItem(
+            g.Protocol,
+            g.Count,
+            (double)g.Count / _totalPackets * 100.0,
+            g.Bytes,
+            g.ColorClass
+        )).ToList();
+    }
+
+    private void CalculateTopTalkers()
+    {
+        var talkerDict = new Dictionary<string, (int packets, long bytes)>();
+
+        foreach (var p in Packets!)
+        {
+            if (!string.IsNullOrWhiteSpace(p.Source))
+            {
+                if (!talkerDict.TryGetValue(p.Source, out var cur)) cur = (0, 0);
+                talkerDict[p.Source] = (cur.packets + 1, cur.bytes + p.Length);
+            }
+
+            if (!string.IsNullOrWhiteSpace(p.Destination) && p.Destination != "Broadcast")
+            {
+                if (!talkerDict.TryGetValue(p.Destination, out var cur)) cur = (0, 0);
+                talkerDict[p.Destination] = (cur.packets + 1, cur.bytes + p.Length);
+            }
+        }
+
+        _topTalkers = talkerDict
+            .OrderByDescending(kv => kv.Value.bytes)
+            .Take(10)
+            .Select(kv => new TalkerStatItem(
+                kv.Key,
+                kv.Value.packets,
+                kv.Value.bytes,
+                _totalBytes > 0 ? (double)kv.Value.bytes / _totalBytes * 100.0 : 0
+            ))
+            .ToList();
+    }
+
+    private void CalculateConversations()
+    {
+        var convDict = new Dictionary<string, (string a, string b, int count, long bytes)>();
+
+        foreach (var p in Packets!)
+        {
+            if (string.IsNullOrWhiteSpace(p.Source) || string.IsNullOrWhiteSpace(p.Destination))
+                continue;
+
+            string a = p.Source;
+            string b = p.Destination;
+            string key = string.Compare(a, b, StringComparison.Ordinal) < 0 ? $"{a}<->{b}" : $"{b}<->{a}";
+
+            if (!convDict.TryGetValue(key, out var cur))
+            {
+                cur = (a, b, 0, 0);
+            }
+            convDict[key] = (cur.a, cur.b, cur.count + 1, cur.bytes + p.Length);
+        }
+
+        _conversations = convDict.Values
+            .OrderByDescending(c => c.bytes)
+            .Take(10)
+            .Select(c => new ConversationItem(c.a, c.b, c.count, c.bytes))
+            .ToList();
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes >= 1024 * 1024)
+            return $"{(bytes / (1024.0 * 1024.0)):F2} MB";
+        if (bytes >= 1024)
+            return $"{(bytes / 1024.0):F2} KB";
+        return $"{bytes} B";
+    }
+
+    private record ProtocolStatItem(string Name, int Count, double PacketPercentage, long Bytes, string ColorClass);
+    private record TalkerStatItem(string Address, int PacketCount, long TotalBytes, double TrafficPercentage);
+    private record ConversationItem(string HostA, string HostB, int PacketCount, long Bytes);
+}

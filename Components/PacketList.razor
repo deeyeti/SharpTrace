@@ -1,0 +1,55 @@
+@using SharpTrace.Core.Models
+
+<div class="packet-list-container">
+    <div class="packet-table-header">
+        <div class="col-num">No.</div>
+        <div class="col-time">Time</div>
+        <div class="col-src">Source</div>
+        <div class="col-dst">Destination</div>
+        <div class="col-proto">Protocol</div>
+        <div class="col-len">Length</div>
+        <div class="col-info">Info</div>
+    </div>
+
+    <div class="packet-table-body">
+        @if (Packets == null || Packets.Count == 0)
+        {
+            <div class="packet-empty-state">
+                <div class="empty-icon">📡</div>
+                <div class="empty-title">No packets loaded</div>
+                <div class="empty-desc">Open a PCAP/PCAPNG file or choose a sample capture above</div>
+            </div>
+        }
+        else
+        {
+            <Virtualize TItem="PacketModel" Items="Packets" Context="packet" OverscanCount="20">
+                <div class="packet-row @packet.ColorClass @(SelectedPacket?.Number == packet.Number ? "selected-packet" : "")"
+                     @onclick="() => SelectPacket(packet)">
+                    <div class="col-num">@packet.Number</div>
+                    <div class="col-time">@packet.RelativeTimeSeconds.ToString("F6")</div>
+                    <div class="col-src" title="@packet.Source">@packet.Source</div>
+                    <div class="col-dst" title="@packet.Destination">@packet.Destination</div>
+                    <div class="col-proto">
+                        <span class="proto-badge @packet.ColorClass">@packet.Protocol</span>
+                    </div>
+                    <div class="col-len">@packet.Length</div>
+                    <div class="col-info" title="@packet.Info">@packet.Info</div>
+                </div>
+            </Virtualize>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public ICollection<PacketModel>? Packets { get; set; }
+    [Parameter] public PacketModel? SelectedPacket { get; set; }
+    [Parameter] public EventCallback<PacketModel> OnPacketSelected { get; set; }
+
+    private async Task SelectPacket(PacketModel packet)
+    {
+        if (OnPacketSelected.HasDelegate)
+        {
+            await OnPacketSelected.InvokeAsync(packet);
+        }
+    }
+}

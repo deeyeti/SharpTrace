@@ -1,0 +1,128 @@
+@using SharpTrace.Core.Filters
+
+<div class="filter-bar-wrapper">
+    <div class="filter-input-row @GetStatusClass()">
+        <span class="filter-icon">🔍</span>
+        <input type="text"
+               class="filter-input"
+               placeholder="Apply a display filter ... (e.g. 'tcp', 'ip.src == 192.168.1.1', 'dns', 'tcp.port == 443', 'http')"
+               value="@_filterText"
+               @oninput="HandleInput"
+               @onkeydown="HandleKeyDown" />
+
+        @if (!string.IsNullOrEmpty(_filterText))
+        {
+            <button class="filter-clear-btn" @onclick="ClearFilter" title="Clear filter">✕</button>
+        }
+
+        <button class="btn-filter-apply @(IsValid ? "valid" : "invalid")" @onclick="ApplyFilter" disabled="@(!IsValid && !string.IsNullOrWhiteSpace(_filterText))">
+            Apply ➔
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="filter-error-message">
+            <span class="error-badge">⚠ Syntax Error</span>
+            <span>@_errorMessage</span>
+        </div>
+    }
+
+    <!-- Quick filter chips -->
+    <div class="filter-chips">
+        <span class="chip-label">Presets:</span>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("tcp")'>tcp</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("udp")'>udp</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("dns")'>dns</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("http")'>http</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("tls")'>tls</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("icmp")'>icmp</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("arp")'>arp</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("tcp.port == 443")'>tcp.port == 443</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("frame.len > 100")'>frame.len > 100</button>
+        <button class="filter-chip" @onclick='() => SetQuickFilter("ip.proto == tcp")'>ip.proto == tcp</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<FilterNode?> OnFilterApplied { get; set; }
+
+    private string _filterText = string.Empty;
+    private string? _errorMessage = null;
+    private FilterNode? _parsedNode = null;
+
+    private bool IsValid => _errorMessage == null;
+
+    private string GetStatusClass()
+    {
+        if (string.IsNullOrWhiteSpace(_filterText))
+            return "";
+        return IsValid ? "filter-valid" : "filter-invalid";
+    }
+
+    private void HandleInput(ChangeEventArgs e)
+    {
+        _filterText = e.Value?.ToString() ?? string.Empty;
+        Validate();
+    }
+
+    private void Validate()
+    {
+        if (string.IsNullOrWhiteSpace(_filterText))
+        {
+            _errorMessage = null;
+            _parsedNode = null;
+            return;
+        }
+
+        try
+        {
+            _parsedNode = FilterParser.Parse(_filterText);
+            _errorMessage = null;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            _parsedNode = null;
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ApplyFilter();
+        }
+        else if (e.Key == "Escape")
+        {
+            await ClearFilter();
+        }
+    }
+
+    private async Task ApplyFilter()
+    {
+        Validate();
+        if (IsValid && OnFilterApplied.HasDelegate)
+        {
+            await OnFilterApplied.InvokeAsync(_parsedNode);
+        }
+    }
+
+    private async Task ClearFilter()
+    {
+        _filterText = string.Empty;
+        _errorMessage = null;
+        _parsedNode = null;
+        if (OnFilterApplied.HasDelegate)
+        {
+            await OnFilterApplied.InvokeAsync(null);
+        }
+    }
+
+    private async Task SetQuickFilter(string filter)
+    {
+        _filterText = filter;
+        Validate();
+        await ApplyFilter();
+    }
+}

@@ -1,0 +1,169 @@
+@using SharpTrace.Core.Models
+
+<div class="tree-container">
+    <div class="tree-header">
+        <div class="tree-header-title">
+            <span class="icon">📑</span> Packet Details Tree
+        </div>
+        @if (Packet != null)
+        {
+            <div class="tree-actions">
+                <button class="btn-tree-action" @onclick="ExpandAll" title="Expand All Layers">▾ Expand All</button>
+                <button class="btn-tree-action" @onclick="CollapseAll" title="Collapse All Layers">▸ Collapse All</button>
+            </div>
+        }
+    </div>
+
+    @if (Packet == null)
+    {
+        <div class="tree-empty-state">
+            <span>Select a packet to view decoded protocol stack</span>
+        </div>
+    }
+    else
+    {
+        <div class="tree-content-scroller">
+            @for (int hIndex = 0; hIndex < Packet.Headers.Count; hIndex++)
+            {
+                var header = Packet.Headers[hIndex];
+                bool isExpanded = _expandedHeaders.Contains(hIndex);
+                bool isSelected = _selectedHeaderIndex == hIndex && _selectedFieldIndex == null;
+
+                <div class="tree-header-item @(isSelected ? "selected" : "")">
+                    <div class="tree-row" @onclick="() => SelectHeader(hIndex, header)">
+                        <button class="tree-toggle-btn" @onclick:stopPropagation="true" @onclick="() => ToggleHeader(hIndex)">
+                            @(isExpanded ? "▼" : "▶")
+                        </button>
+                        <span class="tree-proto-tag">@header.ProtocolName</span>
+                        <span class="tree-label">@header.Description</span>
+                        <span class="tree-offset-badge">@header.ByteOffset..@(header.ByteOffset + header.ByteLength)</span>
+                    </div>
+
+                    @if (isExpanded)
+                    {
+                        <div class="tree-fields-list">
+                            @for (int fIndex = 0; fIndex < header.Fields.Count; fIndex++)
+                            {
+                                var field = header.Fields[fIndex];
+                                string fieldKey = $"{hIndex}_{fIndex}";
+                                RenderField(field, fieldKey, 1);
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public PacketModel? Packet { get; set; }
+    [Parameter] public EventCallback<ByteHighlightRange> OnRangeSelected { get; set; }
+
+    private readonly HashSet<int> _expandedHeaders = new();
+    private readonly HashSet<string> _expandedFields = new();
+    private int? _selectedHeaderIndex = null;
+    private string? _selectedFieldIndex = null;
+
+    protected override void OnParametersSet()
+    {
+        // Default: expand all headers when packet changes
+        if (Packet != null && _expandedHeaders.Count == 0)
+        {
+            for (int i = 0; i < Packet.Headers.Count; i++)
+            {
+                _expandedHeaders.Add(i);
+            }
+        }
+    }
+
+    private void ToggleHeader(int index)
+    {
+        if (!_expandedHeaders.Add(index))
+        {
+            _expandedHeaders.Remove(index);
+        }
+    }
+
+    private void ToggleField(string key)
+    {
+        if (!_expandedFields.Add(key))
+        {
+            _expandedFields.Remove(key);
+        }
+    }
+
+    private void ExpandAll()
+    {
+        if (Packet == null) return;
+        for (int i = 0; i < Packet.Headers.Count; i++)
+            _expandedHeaders.Add(i);
+    }
+
+    private void CollapseAll()
+    {
+        _expandedHeaders.Clear();
+        _expandedFields.Clear();
+    }
+
+    private async Task SelectHeader(int index, PacketHeader header)
+    {
+        _selectedHeaderIndex = index;
+        _selectedFieldIndex = null;
+        if (OnRangeSelected.HasDelegate)
+        {
+            await OnRangeSelected.InvokeAsync(new ByteHighlightRange(header.ByteOffset, header.ByteLength, header.ProtocolName));
+        }
+    }
+
+    private async Task SelectField(string key, PacketField field)
+    {
+        _selectedFieldIndex = key;
+        _selectedHeaderIndex = null;
+        if (OnRangeSelected.HasDelegate)
+        {
+            await OnRangeSelected.InvokeAsync(new ByteHighlightRange(field.ByteOffset, field.ByteLength, field.DisplayText));
+        }
+    }
+
+    private RenderFragment RenderField(PacketField field, string key, int depth) => __builder =>
+    {
+        bool hasChildren = field.Children.Count > 0;
+        bool isExpanded = _expandedFields.Contains(key);
+        bool isSelected = _selectedFieldIndex == key;
+        string indentStyle = $"padding-left: {depth * 18}px;";
+        string severityClass = !string.IsNullOrEmpty(field.Severity) ? $"severity-{field.Severity}" : "";
+
+        <div class="tree-field-item @(isSelected ? "selected" : "") @severityClass">
+            <div class="tree-row" style="@indentStyle" @onclick="() => SelectField(key, field)">
+                @if (hasChildren)
+                {
+                    <button class="tree-toggle-btn" @onclick:stopPropagation="true" @onclick="() => ToggleField(key)">
+                        @(isExpanded ? "▼" : "▶")
+                    </button>
+                }
+                else
+                {
+                    <span class="tree-spacer"></span>
+                }
+                <span class="tree-field-text">@field.DisplayText</span>
+                @if (field.ByteLength > 0)
+                {
+                    <span class="tree-offset-badge">@field.ByteOffset..@(field.ByteOffset + field.ByteLength)</span>
+                }
+            </div>
+
+            @if (hasChildren && isExpanded)
+            {
+                <div class="tree-subfields">
+                    @for (int i = 0; i < field.Children.Count; i++)
+                    {
+                        var child = field.Children[i];
+                        string childKey = $"{key}_{i}";
+                        @RenderField(child, childKey, depth + 1)
+                    }
+                </div>
+            }
+        </div>
+    };
+}
